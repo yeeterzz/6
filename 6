@@ -1,229 +1,62 @@
-ПРОДОЛЖЕНИЕ С ШАГА «CrudPage» — СТРАНИЦЫ ПО ПОСОБИЮ (Практика №6)
+CrudPage — ПЕРЕДЕЛАНО ПРОСТО (по пособию)
 =========================================================================================
-По пособию нужны ОТДЕЛЬНЫЕ страницы: ClientsPage, CarsPage, ServicesPage, OrdersPage,
-UsersPage — у каждой своя загрузка данных, «Добавить», «Редактировать», «Удалить»
-(с подтверждением через MessageBox). Поэтому общий CrudPage НЕ нужен.
+Идея: НИКАКОГО общего CrudPage. Для каждого раздела:
+   • страница списка (DataGrid + кнопки Добавить / Редактировать / Удалить)
+   • страница-форма (поля привязаны через {Binding}, как PizzaPage в пособии)
+Остаются без изменений: Session.cs, MainWindow, LoginPage, RegisterPage, модель EDM.
 
-ЕСЛИ ВЫ УЖЕ СОЗДАЛИ CrudPage.xaml / CrudPage.xaml.cs / Pages.cs — УДАЛИТЕ ЭТИ ФАЙЛЫ
-(ПКМ -> Удалить). Остальное (Session, MainWindow, LoginPage, RegisterPage, модель EDM)
-остаётся как есть. Если FormWindow.cs уже есть — замените его новым (в нём добавились
-три вспомогательных метода).
+ЧТО СДЕЛАТЬ С УЖЕ СОЗДАННЫМ
+  * Если создавали CrudPage.xaml / CrudPage.xaml.cs, FormWindow.cs, Pages.cs — УДАЛИТЕ (ПКМ -> Удалить).
+  * App.xaml.cs — замените содержимое (код в шаге 1): появляется единая переменная App.DB.
+  * Страницы ниже создавайте через ПКМ по проекту -> Добавить -> Страница (WPF).
+    У каждой страницы замените ОБА файла (.xaml и .xaml.cs).
 
-Что должно быть сделано ДО этого: проект WPF (.NET Framework 4.8), модель EDM
-(контекст AutoServiceEntities, галочка «множественное/единственное число» снята),
-Session.cs, MainWindow, LoginPage, RegisterPage.
+ПОРЯДОК
+  Шаг 1. App.xaml.cs
+  Шаги 2–6. Клиенты, Автомобили, Услуги, Заказы, Пользователи (по 2 страницы)
+  Шаг 7. MainPage (кнопки разделов по ролям)
+  Шаг 8. Запуск
 
-ПОРЯДОК:
-  Шаг 7.  FormWindow.cs      (форма добавления/редактирования, общая для всех страниц)
-  Шаг 8.  ClientsPage        (Страница WPF: .xaml + .xaml.cs)
-  Шаг 9.  CarsPage
-  Шаг 10. ServicesPage
-  Шаг 11. OrdersPage
-  Шаг 12. UsersPage
-  Шаг 13. MainPage           (навигация по ролям)
-  Шаг 14. Запуск и проверка
+ИМЕНА В КОДЕ (как в вашем LoginPage/RegisterPage): классы моделей Users, Roles, Clients, Cars,
+Services, Orders; контекст AutoServiceEntities; связанные свойства называются как таблицы:
+Cars.Clients, Orders.Cars, Orders.Services, Orders.Users (мастер), Clients.Users, Users.Roles.
+Если в вашей БД имена другие (например в единственном числе: User, Client...) — Ctrl+H,
+посмотреть реальные имена можно в .edmx.
+Если модель лежит в папке Models — добавьте в начало каждого файла: using AutoService.Models;
 
-Как создавать страницу: ПКМ по проекту -> Добавить -> Страница (WPF) -> имя, например
-ClientsPage.xaml; затем ЗАМЕНИТЕ содержимое и .xaml, и .xaml.cs кодом ниже.
-Для FormWindow.cs: Добавить -> Класс.
 
-Список выводится в ListView (как в разделе «Функционал приложения» пособия).
+=========================================================================================
+ШАГ 1. App.xaml.cs  (единая переменная App.DB)
+=========================================================================================
 
-ШАГ 7. FormWindow.cs
------------------------------------------------------------------------------------------
+---------- ФАЙЛ: App.xaml.cs ----------
 
----------- ФАЙЛ: FormWindow.cs ----------
-
-using System;
-using System.Collections.Generic;
+using System.Data.Entity;
 using System.Windows;
-using System.Windows.Controls;
 
 namespace AutoService
 {
-    public enum Kind { Text, Int, Decimal, Date, Lookup, Choice }
-
-    /// <summary>Одно поле формы добавления/редактирования</summary>
-    public class FormField
+    public partial class App : Application
     {
-        public string Key;          // ключ в словаре результата
-        public string Label;        // подпись
-        public Kind Kind;
-        public object Value;        // начальное значение
-        public bool Nullable;       // можно оставить пустым
-        public bool Enabled = true; // доступно для изменения
-        public List<KeyValuePair<int, string>> Items; // для Lookup (Key = Id, 0 = «нет»)
-        public string[] Choices;    // для Choice
-    }
+        // Единая переменная для связи с БД (пособие, «Подключение БД»)
+        // Если модель называется иначе — замените AutoServiceEntities
+        public static AutoServiceEntities DB = new AutoServiceEntities();
 
-    public static class Helpers
-    {
-        // Список для ComboBox; withNone = первой строкой «— нет —» (Id = 0)
-        public static List<KeyValuePair<int, string>> Pairs(bool withNone, IEnumerable<KeyValuePair<int, string>> src)
+        // Отмена изменений объекта (кнопка «Отмена» на формах)
+        public static void Discard(object entity)
         {
-            var list = new List<KeyValuePair<int, string>>();
-            if (withNone) list.Add(new KeyValuePair<int, string>(0, "— нет —"));
-            list.AddRange(src);
-            return list;
-        }
-
-        // Id выбранной строки списка (элементы – объекты со свойством Id)
-        public static int? SelectedId(ListView list)
-        {
-            var item = list.SelectedItem;
-            if (item == null)
-            {
-                MessageBox.Show("Выберите запись в списке", "Внимание");
-                return null;
-            }
-            return (int)item.GetType().GetProperty("Id").GetValue(item, null);
-        }
-
-        // Подтверждение удаления
-        public static bool ConfirmDelete()
-        {
-            return MessageBox.Show("Удалить выбранную запись?", "Подтверждение удаления",
-                MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
-        }
-
-        public static void ShowError(string m)
-        {
-            MessageBox.Show(m, "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-
-        // 0 -> null (для необязательных внешних ключей)
-        public static int? N(object o)
-        {
-            int i = (int)o;
-            return i == 0 ? (int?)null : i;
-        }
-    }
-
-    /// <summary>Универсальная форма: строит поля, проверяет ввод, вызывает save()</summary>
-    public class FormWindow : Window
-    {
-        readonly Dictionary<string, Control> ctl = new Dictionary<string, Control>();
-        readonly List<FormField> fields;
-        readonly Func<Dictionary<string, object>, string> save;
-
-        public FormWindow(string title, List<FormField> fields, Func<Dictionary<string, object>, string> save)
-        {
-            this.fields = fields; this.save = save;
-            Title = title; Width = 420;
-            SizeToContent = SizeToContent.Height;
-            ResizeMode = ResizeMode.NoResize;
-            WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Owner = Application.Current.MainWindow;
-
-            var panel = new StackPanel { Margin = new Thickness(15) };
-            foreach (var f in fields)
-            {
-                panel.Children.Add(new TextBlock { Text = f.Label, Margin = new Thickness(0, 8, 0, 2) });
-                Control c;
-                switch (f.Kind)
-                {
-                    case Kind.Lookup:
-                        c = new ComboBox
-                        {
-                            ItemsSource = f.Items,
-                            DisplayMemberPath = "Value",
-                            SelectedValuePath = "Key",
-                            SelectedValue = f.Value ?? 0
-                        };
-                        break;
-                    case Kind.Choice:
-                        c = new ComboBox { ItemsSource = f.Choices, SelectedItem = f.Value ?? f.Choices[0] };
-                        break;
-                    case Kind.Date:
-                        c = new DatePicker { SelectedDate = (f.Value as DateTime?) ?? DateTime.Today };
-                        break;
-                    default:
-                        c = new TextBox { Text = f.Value == null ? "" : f.Value.ToString(), Padding = new Thickness(3) };
-                        break;
-                }
-                c.IsEnabled = f.Enabled;
-                ctl[f.Key] = c;
-                panel.Children.Add(c);
-            }
-
-            var buttons = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 18, 0, 0)
-            };
-            var btnSave = new Button { Content = "Сохранить", Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
-            var btnCancel = new Button { Content = "Отмена", Padding = new Thickness(14, 4, 14, 4), IsCancel = true };
-            btnSave.Click += Save_Click;
-            buttons.Children.Add(btnSave);
-            buttons.Children.Add(btnCancel);
-            panel.Children.Add(buttons);
-            Content = panel;
-        }
-
-        void Err(string m)
-        {
-            MessageBox.Show(m, "Внимание", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-
-        void Save_Click(object sender, RoutedEventArgs e)
-        {
-            var values = new Dictionary<string, object>();
-            foreach (var f in fields)
-            {
-                object v = null;
-                switch (f.Kind)
-                {
-                    case Kind.Lookup:
-                        v = ((ComboBox)ctl[f.Key]).SelectedValue ?? 0;
-                        if ((int)v == 0 && !f.Nullable) v = null;
-                        break;
-                    case Kind.Choice:
-                        v = ((ComboBox)ctl[f.Key]).SelectedItem;
-                        break;
-                    case Kind.Date:
-                        v = ((DatePicker)ctl[f.Key]).SelectedDate;
-                        break;
-                    default:
-                        string tx = ((TextBox)ctl[f.Key]).Text.Trim();
-                        if (tx == "") break;
-                        if (f.Kind == Kind.Int)
-                        {
-                            int i;
-                            if (!int.TryParse(tx, out i)) { Err("Поле «" + f.Label + "» должно быть целым числом"); return; }
-                            v = i;
-                        }
-                        else if (f.Kind == Kind.Decimal)
-                        {
-                            decimal d;
-                            if (!decimal.TryParse(tx, out d)) { Err("Поле «" + f.Label + "» должно быть числом"); return; }
-                            v = d;
-                        }
-                        else v = tx;
-                        break;
-                }
-                if (v == null && !f.Nullable) { Err("Заполните поле «" + f.Label + "»"); return; }
-                values[f.Key] = v;
-            }
-
-            string error;
-            try { error = save(values); }
-            catch (Exception ex) { error = "Не удалось сохранить запись: " + ex.GetBaseException().Message; }
-
-            if (error != null)
-            {
-                MessageBox.Show(error, "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-            DialogResult = true;
+            var entry = DB.Entry(entity);
+            if (entry.State == EntityState.Added) entry.State = EntityState.Detached;
+            else if (entry.State != EntityState.Detached) entry.Reload();
         }
     }
 }
 
 
 
-ШАГ 8. ClientsPage
------------------------------------------------------------------------------------------
+=========================================================================================
+ШАГ 2. Клиенты: ClientsPage (список) и ClientEditPage (форма)
+=========================================================================================
 
 ---------- ФАЙЛ: ClientsPage.xaml ----------
 
@@ -237,23 +70,22 @@ namespace AutoService
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock x:Name="TitleText" Text="Клиенты" FontSize="20" FontWeight="Bold"
+            <TextBlock x:Name="TBTitle" Text="Клиенты" FontSize="20" FontWeight="Bold"
                        VerticalAlignment="Center" Margin="0,0,25,0"/>
-            <Button x:Name="AddBtn" Content="Добавить" Click="Add_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="EditBtn" Content="Редактировать" Click="Edit_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="DelBtn" Content="Удалить" Click="Delete_Click" Padding="12,4"/>
+            <Button x:Name="BAdd" Content="Добавить" Click="BAdd_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BEdit" Content="Редактировать" Click="BEdit_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BDelete" Content="Удалить" Click="BDelete_Click" Padding="12,4"/>
         </StackPanel>
-        <ListView x:Name="DataList" Grid.Row="1" MouseDoubleClick="DataList_DoubleClick">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="ID" Width="50" DisplayMemberBinding="{Binding Id}"/>
-                    <GridViewColumn Header="ФИО" Width="250" DisplayMemberBinding="{Binding FullName}"/>
-                    <GridViewColumn Header="Телефон" Width="140" DisplayMemberBinding="{Binding Phone}"/>
-                    <GridViewColumn Header="Email" Width="180" DisplayMemberBinding="{Binding Email}"/>
-                    <GridViewColumn Header="Учётная запись" Width="130" DisplayMemberBinding="{Binding Login}"/>
-                </GridView>
-            </ListView.View>
-        </ListView>
+        <DataGrid x:Name="DGClients" Grid.Row="1" AutoGenerateColumns="False"
+                  IsReadOnly="True" SelectionMode="Single">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
+                <DataGridTextColumn Header="ФИО" Binding="{Binding FullName}" Width="250"/>
+                <DataGridTextColumn Header="Телефон" Binding="{Binding Phone}" Width="140"/>
+                <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="180"/>
+                <DataGridTextColumn Header="Учётная запись" Binding="{Binding Users.Login}" Width="130"/>
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </Page>
 
@@ -261,7 +93,6 @@ namespace AutoService
 ---------- ФАЙЛ: ClientsPage.xaml.cs ----------
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -273,99 +104,147 @@ namespace AutoService
         public ClientsPage()
         {
             InitializeComponent();
+
             LoadData();
+            // при возврате со страницы редактирования список обновляется
+            IsVisibleChanged += (s, e) => { if ((bool)e.NewValue) LoadData(); };
         }
 
-        // Загрузка данных из БД при открытии страницы
+        // Загрузка данных из БД
         void LoadData()
         {
+            DGClients.ItemsSource = App.DB.Clients.ToList();
+        }
+
+        private void BAdd_Click(object sender, RoutedEventArgs e)
+        {
+            NavigationService.Navigate(new ClientEditPage(new Clients()));
+        }
+
+        private void BEdit_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = DGClients.SelectedItem as Clients;
+            if (selected == null)
+            {
+                MessageBox.Show("Выберите запись!");
+                return;
+            }
+            NavigationService.Navigate(new ClientEditPage(selected));
+        }
+
+        private void BDelete_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = DGClients.SelectedItem as Clients;
+            if (selected == null)
+            {
+                MessageBox.Show("Выберите запись!");
+                return;
+            }
+
+            if (MessageBox.Show("Удалить выбранную запись?", "Подтверждение",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             try
             {
-                using (var db = new AutoServiceEntities())
-                {
-                    DataList.ItemsSource = (from c in db.Clients
-                                            join u0 in db.Users on c.UserId equals u0.Id into uj
-                                            from u in uj.DefaultIfEmpty()
-                                            orderby c.Id
-                                            select new { c.Id, c.FullName, c.Phone, c.Email, Login = u.Login ?? "—" }).ToList();
-                }
+                App.DB.Clients.Remove(selected);
+                App.DB.SaveChanges();
             }
-            catch (Exception ex) { Helpers.ShowError("Ошибка загрузки данных: " + ex.GetBaseException().Message); }
-        }
-
-        void DataList_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        {
-            if (EditBtn.Visibility == Visibility.Visible && DataList.SelectedItem != null)
-                Edit_Click(sender, e);
-        }
-
-        void Add_Click(object sender, RoutedEventArgs e)
-        {
-            if (OpenForm(null)) LoadData();
-        }
-
-        void Edit_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null) return;
-            if (OpenForm(id.Value)) LoadData();
-        }
-
-        void Delete_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null || !Helpers.ConfirmDelete()) return;
-            try
+            catch (Exception)
             {
-                using (var db = new AutoServiceEntities())
-                {
-                    var c = db.Clients.Find(id.Value);
-                    if (c != null) { db.Clients.Remove(c); db.SaveChanges(); }
-                }
+                App.DB.Entry(selected).Reload();
+                MessageBox.Show("Запись нельзя удалить: она связана с другими данными.");
             }
-            catch (Exception) { Helpers.ShowError("Запись нельзя удалить: она связана с другими данными (автомобили)."); }
             LoadData();
         }
+    }
+}
 
-        // Форма добавления (id == null) или редактирования
-        bool OpenForm(int? id)
+
+---------- ФАЙЛ: ClientEditPage.xaml ----------
+
+<Page x:Class="AutoService.ClientEditPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="Клиент">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Width="340" Margin="10" HorizontalAlignment="Center">
+            <TextBlock Text="Клиент" FontSize="20" FontWeight="Bold" Margin="0,0,0,10"/>
+            <TextBlock Text="ФИО" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBFullName" Text="{Binding FullName}" Padding="3"/>
+            <TextBlock Text="Телефон" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBPhone" Text="{Binding Phone}" Padding="3"/>
+            <TextBlock Text="Email" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBEmail" Text="{Binding Email}" Padding="3"/>
+            <TextBlock Text="Учётная запись (клиент)" Margin="0,8,0,2"/>
+            <ComboBox x:Name="CBUser" SelectedItem="{Binding Users}" DisplayMemberPath="Login"/>
+            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                <Button x:Name="BSave" Content="Сохранить" Click="BSave_Click" Padding="14,4" Margin="0,0,8,0"/>
+                <Button x:Name="BCancel" Content="Отмена" Click="BCancel_Click" Padding="14,4"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
+
+
+---------- ФАЙЛ: ClientEditPage.xaml.cs ----------
+
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace AutoService
+{
+    public partial class ClientEditPage : Page
+    {
+        Clients contextClient;
+
+        public ClientEditPage(Clients item)
         {
-            using (var db = new AutoServiceEntities())
-            {
-                var c = id == null ? new Clients() : db.Clients.Find(id.Value);
-                var users = (from u in db.Users
-                             join r in db.Roles on u.RoleId equals r.Id
-                             where r.Name == "Клиент"
-                             select new { u.Id, u.Login }).ToList()
-                            .Select(x => new KeyValuePair<int, string>(x.Id, x.Login));
+            InitializeComponent();
+            contextClient = item;
+            CBUser.ItemsSource = App.DB.Users.Where(x => x.Roles.Name == "Клиент").ToList();
+            // привязка свойств объекта к полям формы (Binding)
+            DataContext = contextClient;
+        }
 
-                var fields = new List<FormField> {
-                    new FormField { Key = "FullName", Label = "ФИО", Value = c.FullName },
-                    new FormField { Key = "Phone", Label = "Телефон", Value = c.Phone, Nullable = true },
-                    new FormField { Key = "Email", Label = "Email", Value = c.Email, Nullable = true },
-                    new FormField { Key = "UserId", Label = "Учётная запись (клиент)", Kind = Kind.Lookup,
-                                    Items = Helpers.Pairs(true, users), Value = c.UserId ?? 0, Nullable = true }
-                };
-                var form = new FormWindow(id == null ? "Добавление клиента" : "Редактирование клиента", fields, v =>
-                {
-                    c.FullName = (string)v["FullName"];
-                    c.Phone = (string)v["Phone"];
-                    c.Email = (string)v["Email"];
-                    c.UserId = Helpers.N(v["UserId"]);
-                    if (id == null) db.Clients.Add(c);   // INSERT
-                    db.SaveChanges();                     // UPDATE для существующей записи
-                    return null;
-                });
-                return form.ShowDialog() == true;
+        private void BSave_Click(object sender, RoutedEventArgs e)
+        {
+            string errorMessage = "";
+            if (string.IsNullOrWhiteSpace(contextClient.FullName))
+                errorMessage += "Заполните ФИО\n";
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                MessageBox.Show(errorMessage);
+                return;
             }
+
+            try
+            {
+                if (contextClient.Id == 0)
+                    App.DB.Clients.Add(contextClient);
+                App.DB.SaveChanges();
+                // Переход назад после сохранения изменений
+                NavigationService.GoBack();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Не удалось сохранить запись: " + ex.GetBaseException().Message);
+            }
+        }
+
+        private void BCancel_Click(object sender, RoutedEventArgs e)
+        {
+            App.Discard(contextClient);
+            NavigationService.GoBack();
         }
     }
 }
 
 
 
-ШАГ 9. CarsPage
------------------------------------------------------------------------------------------
+=========================================================================================
+ШАГ 3. Автомобили: CarsPage (список) и CarEditPage (форма)
+=========================================================================================
 
 ---------- ФАЙЛ: CarsPage.xaml ----------
 
@@ -379,24 +258,23 @@ namespace AutoService
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock x:Name="TitleText" Text="Автомобили" FontSize="20" FontWeight="Bold"
+            <TextBlock x:Name="TBTitle" Text="Автомобили" FontSize="20" FontWeight="Bold"
                        VerticalAlignment="Center" Margin="0,0,25,0"/>
-            <Button x:Name="AddBtn" Content="Добавить" Click="Add_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="EditBtn" Content="Редактировать" Click="Edit_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="DelBtn" Content="Удалить" Click="Delete_Click" Padding="12,4"/>
+            <Button x:Name="BAdd" Content="Добавить" Click="BAdd_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BEdit" Content="Редактировать" Click="BEdit_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BDelete" Content="Удалить" Click="BDelete_Click" Padding="12,4"/>
         </StackPanel>
-        <ListView x:Name="DataList" Grid.Row="1" MouseDoubleClick="DataList_DoubleClick">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="ID" Width="50" DisplayMemberBinding="{Binding Id}"/>
-                    <GridViewColumn Header="Владелец" Width="230" DisplayMemberBinding="{Binding Owner}"/>
-                    <GridViewColumn Header="Марка" Width="120" DisplayMemberBinding="{Binding Brand}"/>
-                    <GridViewColumn Header="Модель" Width="120" DisplayMemberBinding="{Binding Model}"/>
-                    <GridViewColumn Header="Год" Width="70" DisplayMemberBinding="{Binding ReleaseYear}"/>
-                    <GridViewColumn Header="Гос. номер" Width="120" DisplayMemberBinding="{Binding PlateNumber}"/>
-                </GridView>
-            </ListView.View>
-        </ListView>
+        <DataGrid x:Name="DGCars" Grid.Row="1" AutoGenerateColumns="False"
+                  IsReadOnly="True" SelectionMode="Single">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
+                <DataGridTextColumn Header="Владелец" Binding="{Binding Clients.FullName}" Width="230"/>
+                <DataGridTextColumn Header="Марка" Binding="{Binding Brand}" Width="120"/>
+                <DataGridTextColumn Header="Модель" Binding="{Binding Model}" Width="120"/>
+                <DataGridTextColumn Header="Год" Binding="{Binding ReleaseYear}" Width="70"/>
+                <DataGridTextColumn Header="Гос. номер" Binding="{Binding PlateNumber}" Width="120"/>
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </Page>
 
@@ -404,7 +282,6 @@ namespace AutoService
 ---------- ФАЙЛ: CarsPage.xaml.cs ----------
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -416,102 +293,163 @@ namespace AutoService
         public CarsPage()
         {
             InitializeComponent();
-            if (Session.Role == Session.Client) TitleText.Text = "Мои автомобили";
-            // Клиент – только просмотр
-            bool admin = Session.Role == Session.Admin;
-            AddBtn.Visibility = EditBtn.Visibility = DelBtn.Visibility = admin ? Visibility.Visible : Visibility.Collapsed;
+            bool admin = Session.Role == "Администратор";
+            BAdd.Visibility = BEdit.Visibility = BDelete.Visibility = admin ? Visibility.Visible : Visibility.Collapsed;
+            if (Session.Role == "Клиент") TBTitle.Text = "Мои автомобили";
             LoadData();
+            // при возврате со страницы редактирования список обновляется
+            IsVisibleChanged += (s, e) => { if ((bool)e.NewValue) LoadData(); };
         }
 
+        // Загрузка данных из БД
         void LoadData()
         {
             int uid = Session.UserId;
-            bool isClient = Session.Role == Session.Client;
+            if (Session.Role == "Клиент")
+                DGCars.ItemsSource = App.DB.Cars.Where(x => x.Clients.UserId == uid).ToList();   // только свои автомобили
+            else
+                DGCars.ItemsSource = App.DB.Cars.ToList();
+        }
+
+        private void BAdd_Click(object sender, RoutedEventArgs e)
+        {
+            NavigationService.Navigate(new CarEditPage(new Cars()));
+        }
+
+        private void BEdit_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = DGCars.SelectedItem as Cars;
+            if (selected == null)
+            {
+                MessageBox.Show("Выберите запись!");
+                return;
+            }
+            NavigationService.Navigate(new CarEditPage(selected));
+        }
+
+        private void BDelete_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = DGCars.SelectedItem as Cars;
+            if (selected == null)
+            {
+                MessageBox.Show("Выберите запись!");
+                return;
+            }
+
+            if (MessageBox.Show("Удалить выбранную запись?", "Подтверждение",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             try
             {
-                using (var db = new AutoServiceEntities())
-                {
-                    var q = from ca in db.Cars
-                            join cl in db.Clients on ca.ClientId equals cl.Id
-                            select new { ca.Id, Owner = cl.FullName, ca.Brand, ca.Model, ca.ReleaseYear, ca.PlateNumber, cl.UserId };
-                    if (isClient) q = q.Where(x => x.UserId == uid);   // клиент видит только свои автомобили
-                    DataList.ItemsSource = q.OrderBy(x => x.Id).ToList();
-                }
+                App.DB.Cars.Remove(selected);
+                App.DB.SaveChanges();
             }
-            catch (Exception ex) { Helpers.ShowError("Ошибка загрузки данных: " + ex.GetBaseException().Message); }
-        }
-
-        void DataList_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        {
-            if (EditBtn.Visibility == Visibility.Visible && DataList.SelectedItem != null)
-                Edit_Click(sender, e);
-        }
-
-        void Add_Click(object sender, RoutedEventArgs e)
-        {
-            if (OpenForm(null)) LoadData();
-        }
-
-        void Edit_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null) return;
-            if (OpenForm(id.Value)) LoadData();
-        }
-
-        void Delete_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null || !Helpers.ConfirmDelete()) return;
-            try
+            catch (Exception)
             {
-                using (var db = new AutoServiceEntities())
-                {
-                    var car = db.Cars.Find(id.Value);
-                    if (car != null) { db.Cars.Remove(car); db.SaveChanges(); }
-                }
+                App.DB.Entry(selected).Reload();
+                MessageBox.Show("Запись нельзя удалить: она связана с другими данными.");
             }
-            catch (Exception) { Helpers.ShowError("Запись нельзя удалить: она связана с другими данными (заказы)."); }
             LoadData();
         }
+    }
+}
 
-        bool OpenForm(int? id)
+
+---------- ФАЙЛ: CarEditPage.xaml ----------
+
+<Page x:Class="AutoService.CarEditPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="Автомобиль">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Width="340" Margin="10" HorizontalAlignment="Center">
+            <TextBlock Text="Автомобиль" FontSize="20" FontWeight="Bold" Margin="0,0,0,10"/>
+            <TextBlock Text="Владелец" Margin="0,8,0,2"/>
+            <ComboBox x:Name="CBClient" SelectedItem="{Binding Clients}" DisplayMemberPath="FullName"/>
+            <TextBlock Text="Марка" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBBrand" Text="{Binding Brand}" Padding="3"/>
+            <TextBlock Text="Модель" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBModel" Text="{Binding Model}" Padding="3"/>
+            <TextBlock Text="Год выпуска" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBYear" Text="{Binding ReleaseYear}" Padding="3"/>
+            <TextBlock Text="Гос. номер" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBPlate" Text="{Binding PlateNumber}" Padding="3"/>
+            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                <Button x:Name="BSave" Content="Сохранить" Click="BSave_Click" Padding="14,4" Margin="0,0,8,0"/>
+                <Button x:Name="BCancel" Content="Отмена" Click="BCancel_Click" Padding="14,4"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
+
+
+---------- ФАЙЛ: CarEditPage.xaml.cs ----------
+
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace AutoService
+{
+    public partial class CarEditPage : Page
+    {
+        Cars contextCar;
+
+        public CarEditPage(Cars item)
         {
-            using (var db = new AutoServiceEntities())
-            {
-                var car = id == null ? new Cars() : db.Cars.Find(id.Value);
-                var clients = db.Clients.ToList().Select(x => new KeyValuePair<int, string>(x.Id, x.FullName));
+            InitializeComponent();
+            contextCar = item;
+            CBClient.ItemsSource = App.DB.Clients.ToList();
+            // привязка свойств объекта к полям формы (Binding)
+            DataContext = contextCar;
+        }
 
-                var fields = new List<FormField> {
-                    new FormField { Key = "ClientId", Label = "Владелец", Kind = Kind.Lookup,
-                                    Items = Helpers.Pairs(false, clients), Value = id == null ? 0 : car.ClientId },
-                    new FormField { Key = "Brand", Label = "Марка", Value = car.Brand },
-                    new FormField { Key = "Model", Label = "Модель", Value = car.Model },
-                    new FormField { Key = "ReleaseYear", Label = "Год выпуска", Kind = Kind.Int,
-                                    Value = id == null ? (int?)null : car.ReleaseYear },
-                    new FormField { Key = "PlateNumber", Label = "Гос. номер", Value = car.PlateNumber }
-                };
-                var form = new FormWindow(id == null ? "Добавление автомобиля" : "Редактирование автомобиля", fields, v =>
-                {
-                    car.ClientId = (int)v["ClientId"];
-                    car.Brand = (string)v["Brand"];
-                    car.Model = (string)v["Model"];
-                    car.ReleaseYear = (int)v["ReleaseYear"];
-                    car.PlateNumber = (string)v["PlateNumber"];
-                    if (id == null) db.Cars.Add(car);
-                    db.SaveChanges();
-                    return null;
-                });
-                return form.ShowDialog() == true;
+        private void BSave_Click(object sender, RoutedEventArgs e)
+        {
+            string errorMessage = "";
+            if (contextCar.Clients == null)
+                errorMessage += "Выберите владельца\n";
+            if (string.IsNullOrWhiteSpace(contextCar.Brand))
+                errorMessage += "Заполните марку\n";
+            if (string.IsNullOrWhiteSpace(contextCar.Model))
+                errorMessage += "Заполните модель\n";
+            if (contextCar.ReleaseYear < 1950 || contextCar.ReleaseYear > DateTime.Now.Year + 1)
+                errorMessage += "Год выпуска должен быть в диапазоне 1950 – " + (DateTime.Now.Year + 1) + "\n";
+            if (string.IsNullOrWhiteSpace(contextCar.PlateNumber))
+                errorMessage += "Заполните гос. номер\n";
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                MessageBox.Show(errorMessage);
+                return;
             }
+
+            try
+            {
+                if (contextCar.Id == 0)
+                    App.DB.Cars.Add(contextCar);
+                App.DB.SaveChanges();
+                // Переход назад после сохранения изменений
+                NavigationService.GoBack();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Не удалось сохранить запись: " + ex.GetBaseException().Message);
+            }
+        }
+
+        private void BCancel_Click(object sender, RoutedEventArgs e)
+        {
+            App.Discard(contextCar);
+            NavigationService.GoBack();
         }
     }
 }
 
 
 
-ШАГ 10. ServicesPage
------------------------------------------------------------------------------------------
+=========================================================================================
+ШАГ 4. Услуги: ServicesPage (список) и ServiceEditPage (форма)
+=========================================================================================
 
 ---------- ФАЙЛ: ServicesPage.xaml ----------
 
@@ -525,22 +463,21 @@ namespace AutoService
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock x:Name="TitleText" Text="Услуги" FontSize="20" FontWeight="Bold"
+            <TextBlock x:Name="TBTitle" Text="Услуги" FontSize="20" FontWeight="Bold"
                        VerticalAlignment="Center" Margin="0,0,25,0"/>
-            <Button x:Name="AddBtn" Content="Добавить" Click="Add_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="EditBtn" Content="Редактировать" Click="Edit_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="DelBtn" Content="Удалить" Click="Delete_Click" Padding="12,4"/>
+            <Button x:Name="BAdd" Content="Добавить" Click="BAdd_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BEdit" Content="Редактировать" Click="BEdit_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BDelete" Content="Удалить" Click="BDelete_Click" Padding="12,4"/>
         </StackPanel>
-        <ListView x:Name="DataList" Grid.Row="1" MouseDoubleClick="DataList_DoubleClick">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="ID" Width="50" DisplayMemberBinding="{Binding Id}"/>
-                    <GridViewColumn Header="Название" Width="280" DisplayMemberBinding="{Binding Name}"/>
-                    <GridViewColumn Header="Цена, ₽" Width="100" DisplayMemberBinding="{Binding Price, StringFormat=N2}"/>
-                    <GridViewColumn Header="Длительность, мин" Width="140" DisplayMemberBinding="{Binding DurationMin}"/>
-                </GridView>
-            </ListView.View>
-        </ListView>
+        <DataGrid x:Name="DGServices" Grid.Row="1" AutoGenerateColumns="False"
+                  IsReadOnly="True" SelectionMode="Single">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
+                <DataGridTextColumn Header="Название" Binding="{Binding Name}" Width="280"/>
+                <DataGridTextColumn Header="Цена, ₽" Binding="{Binding Price, StringFormat=N2, ConverterCulture=ru-RU}" Width="100"/>
+                <DataGridTextColumn Header="Длительность, мин" Binding="{Binding DurationMin}" Width="140"/>
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </Page>
 
@@ -548,7 +485,6 @@ namespace AutoService
 ---------- ФАЙЛ: ServicesPage.xaml.cs ----------
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -560,90 +496,150 @@ namespace AutoService
         public ServicesPage()
         {
             InitializeComponent();
-            // Мастер – только просмотр услуг, полный CRUD у администратора
-            bool admin = Session.Role == Session.Admin;
-            AddBtn.Visibility = EditBtn.Visibility = DelBtn.Visibility = admin ? Visibility.Visible : Visibility.Collapsed;
+            bool admin = Session.Role == "Администратор";
+            BAdd.Visibility = BEdit.Visibility = BDelete.Visibility = admin ? Visibility.Visible : Visibility.Collapsed;
             LoadData();
+            // при возврате со страницы редактирования список обновляется
+            IsVisibleChanged += (s, e) => { if ((bool)e.NewValue) LoadData(); };
         }
 
+        // Загрузка данных из БД
         void LoadData()
         {
+            DGServices.ItemsSource = App.DB.Services.ToList();
+        }
+
+        private void BAdd_Click(object sender, RoutedEventArgs e)
+        {
+            NavigationService.Navigate(new ServiceEditPage(new Services()));
+        }
+
+        private void BEdit_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = DGServices.SelectedItem as Services;
+            if (selected == null)
+            {
+                MessageBox.Show("Выберите запись!");
+                return;
+            }
+            NavigationService.Navigate(new ServiceEditPage(selected));
+        }
+
+        private void BDelete_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = DGServices.SelectedItem as Services;
+            if (selected == null)
+            {
+                MessageBox.Show("Выберите запись!");
+                return;
+            }
+
+            if (MessageBox.Show("Удалить выбранную запись?", "Подтверждение",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             try
             {
-                using (var db = new AutoServiceEntities())
-                {
-                    DataList.ItemsSource = db.Services.OrderBy(s => s.Id)
-                        .Select(s => new { s.Id, s.Name, s.Price, s.DurationMin }).ToList();
-                }
+                App.DB.Services.Remove(selected);
+                App.DB.SaveChanges();
             }
-            catch (Exception ex) { Helpers.ShowError("Ошибка загрузки данных: " + ex.GetBaseException().Message); }
-        }
-
-        void DataList_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        {
-            if (EditBtn.Visibility == Visibility.Visible && DataList.SelectedItem != null)
-                Edit_Click(sender, e);
-        }
-
-        void Add_Click(object sender, RoutedEventArgs e)
-        {
-            if (OpenForm(null)) LoadData();
-        }
-
-        void Edit_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null) return;
-            if (OpenForm(id.Value)) LoadData();
-        }
-
-        void Delete_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null || !Helpers.ConfirmDelete()) return;
-            try
+            catch (Exception)
             {
-                using (var db = new AutoServiceEntities())
-                {
-                    var s = db.Services.Find(id.Value);
-                    if (s != null) { db.Services.Remove(s); db.SaveChanges(); }
-                }
+                App.DB.Entry(selected).Reload();
+                MessageBox.Show("Запись нельзя удалить: она связана с другими данными.");
             }
-            catch (Exception) { Helpers.ShowError("Запись нельзя удалить: услуга используется в заказах."); }
             LoadData();
         }
+    }
+}
 
-        bool OpenForm(int? id)
+
+---------- ФАЙЛ: ServiceEditPage.xaml ----------
+
+<Page x:Class="AutoService.ServiceEditPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="Услуга">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Width="340" Margin="10" HorizontalAlignment="Center">
+            <TextBlock Text="Услуга" FontSize="20" FontWeight="Bold" Margin="0,0,0,10"/>
+            <TextBlock Text="Название" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBName" Text="{Binding Name}" Padding="3"/>
+            <TextBlock Text="Цена" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBPrice" Text="{Binding Price, ConverterCulture=ru-RU}" Padding="3"/>
+            <TextBlock Text="Длительность (мин)" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBDuration" Text="{Binding DurationMin}" Padding="3"/>
+            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                <Button x:Name="BSave" Content="Сохранить" Click="BSave_Click" Padding="14,4" Margin="0,0,8,0"/>
+                <Button x:Name="BCancel" Content="Отмена" Click="BCancel_Click" Padding="14,4"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
+
+
+---------- ФАЙЛ: ServiceEditPage.xaml.cs ----------
+
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace AutoService
+{
+    public partial class ServiceEditPage : Page
+    {
+        Services contextService;
+
+        public ServiceEditPage(Services item)
         {
-            using (var db = new AutoServiceEntities())
+            InitializeComponent();
+            contextService = item;
+
+            // привязка свойств объекта к полям формы (Binding)
+            DataContext = contextService;
+        }
+
+        private void BSave_Click(object sender, RoutedEventArgs e)
+        {
+            string errorMessage = "";
+            if (string.IsNullOrWhiteSpace(contextService.Name))
+                errorMessage += "Заполните название\n";
+            if (contextService.Price <= 0)
+                errorMessage += "Цена должна быть больше 0\n";
+            if (contextService.DurationMin <= 0)
+                errorMessage += "Длительность должна быть больше 0\n";
+            if (!string.IsNullOrWhiteSpace(errorMessage))
             {
-                var s = id == null ? new Services() : db.Services.Find(id.Value);
-                var fields = new List<FormField> {
-                    new FormField { Key = "Name", Label = "Название", Value = s.Name },
-                    new FormField { Key = "Price", Label = "Цена", Kind = Kind.Decimal,
-                                    Value = id == null ? (decimal?)null : s.Price },
-                    new FormField { Key = "DurationMin", Label = "Длительность (мин)", Kind = Kind.Int,
-                                    Value = id == null ? (int?)null : s.DurationMin }
-                };
-                var form = new FormWindow(id == null ? "Добавление услуги" : "Редактирование услуги", fields, v =>
-                {
-                    s.Name = (string)v["Name"];
-                    s.Price = (decimal)v["Price"];
-                    s.DurationMin = (int)v["DurationMin"];
-                    if (id == null) db.Services.Add(s);
-                    db.SaveChanges();
-                    return null;
-                });
-                return form.ShowDialog() == true;
+                MessageBox.Show(errorMessage);
+                return;
             }
+
+            try
+            {
+                if (contextService.Id == 0)
+                    App.DB.Services.Add(contextService);
+                App.DB.SaveChanges();
+                // Переход назад после сохранения изменений
+                NavigationService.GoBack();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Не удалось сохранить запись: " + ex.GetBaseException().Message);
+            }
+        }
+
+        private void BCancel_Click(object sender, RoutedEventArgs e)
+        {
+            App.Discard(contextService);
+            NavigationService.GoBack();
         }
     }
 }
 
 
 
-ШАГ 11. OrdersPage
------------------------------------------------------------------------------------------
+=========================================================================================
+ШАГ 5. Заказы: OrdersPage (список) и OrderEditPage (форма)
+=========================================================================================
 
 ---------- ФАЙЛ: OrdersPage.xaml ----------
 
@@ -657,25 +653,25 @@ namespace AutoService
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock x:Name="TitleText" Text="Заказы" FontSize="20" FontWeight="Bold"
+            <TextBlock x:Name="TBTitle" Text="Заказы" FontSize="20" FontWeight="Bold"
                        VerticalAlignment="Center" Margin="0,0,25,0"/>
-            <Button x:Name="AddBtn" Content="Добавить" Click="Add_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="EditBtn" Content="Редактировать" Click="Edit_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="DelBtn" Content="Удалить" Click="Delete_Click" Padding="12,4"/>
+            <Button x:Name="BAdd" Content="Добавить" Click="BAdd_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BEdit" Content="Редактировать" Click="BEdit_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BDelete" Content="Удалить" Click="BDelete_Click" Padding="12,4"/>
         </StackPanel>
-        <ListView x:Name="DataList" Grid.Row="1" MouseDoubleClick="DataList_DoubleClick">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="ID" Width="50" DisplayMemberBinding="{Binding Id}"/>
-                    <GridViewColumn Header="Клиент" Width="190" DisplayMemberBinding="{Binding Client}"/>
-                    <GridViewColumn Header="Автомобиль" Width="230" DisplayMemberBinding="{Binding Car}"/>
-                    <GridViewColumn Header="Услуга" Width="190" DisplayMemberBinding="{Binding Service}"/>
-                    <GridViewColumn Header="Мастер" Width="160" DisplayMemberBinding="{Binding Master}"/>
-                    <GridViewColumn Header="Дата" Width="90" DisplayMemberBinding="{Binding OrderDate, StringFormat=dd.MM.yyyy}"/>
-                    <GridViewColumn Header="Статус" Width="90" DisplayMemberBinding="{Binding Status}"/>
-                </GridView>
-            </ListView.View>
-        </ListView>
+        <DataGrid x:Name="DGOrders" Grid.Row="1" AutoGenerateColumns="False"
+                  IsReadOnly="True" SelectionMode="Single">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
+                <DataGridTextColumn Header="Клиент" Binding="{Binding Cars.Clients.FullName}" Width="180"/>
+                <DataGridTextColumn Header="Марка" Binding="{Binding Cars.Brand}" Width="100"/>
+                <DataGridTextColumn Header="Модель" Binding="{Binding Cars.Model}" Width="100"/>
+                <DataGridTextColumn Header="Услуга" Binding="{Binding Services.Name}" Width="180"/>
+                <DataGridTextColumn Header="Мастер" Binding="{Binding Users.FullName}" Width="150"/>
+                <DataGridTextColumn Header="Дата" Binding="{Binding OrderDate, StringFormat=dd.MM.yyyy}" Width="90"/>
+                <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="90"/>
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </Page>
 
@@ -683,7 +679,6 @@ namespace AutoService
 ---------- ФАЙЛ: OrdersPage.xaml.cs ----------
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -692,140 +687,190 @@ namespace AutoService
 {
     public partial class OrdersPage : Page
     {
-        static readonly string[] Statuses = { "Новый", "В работе", "Готов", "Выдан" };
-
         public OrdersPage()
         {
             InitializeComponent();
-            if (Session.Role == Session.Client) TitleText.Text = "Мои заказы";
-            // Админ: полный CRUD; мастер: только меняет статус; клиент: только просмотр
-            AddBtn.Visibility = DelBtn.Visibility = Session.Role == Session.Admin ? Visibility.Visible : Visibility.Collapsed;
-            EditBtn.Visibility = Session.Role != Session.Client ? Visibility.Visible : Visibility.Collapsed;
+            string role = Session.Role;
+            // админ: добавление/удаление; мастер: только редактирование (статус); клиент: просмотр
+            BAdd.Visibility = BDelete.Visibility = role == "Администратор" ? Visibility.Visible : Visibility.Collapsed;
+            BEdit.Visibility = role != "Клиент" ? Visibility.Visible : Visibility.Collapsed;
+            if (role == "Клиент") TBTitle.Text = "Мои заказы";
             LoadData();
+            // при возврате со страницы редактирования список обновляется
+            IsVisibleChanged += (s, e) => { if ((bool)e.NewValue) LoadData(); };
         }
 
+        // Загрузка данных из БД
         void LoadData()
         {
-            int uid = Session.UserId;
             string role = Session.Role;
+            int uid = Session.UserId;
+            if (role == "Мастер")
+                DGOrders.ItemsSource = App.DB.Orders.Where(x => x.MasterId == uid).ToList();             // свои заказы
+            else if (role == "Клиент")
+                DGOrders.ItemsSource = App.DB.Orders.Where(x => x.Cars.Clients.UserId == uid).ToList();    // свои заказы
+            else
+                DGOrders.ItemsSource = App.DB.Orders.ToList();
+        }
+
+        private void BAdd_Click(object sender, RoutedEventArgs e)
+        {
+            NavigationService.Navigate(new OrderEditPage(new Orders { OrderDate = DateTime.Today, Status = "Новый" }));
+        }
+
+        private void BEdit_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = DGOrders.SelectedItem as Orders;
+            if (selected == null)
+            {
+                MessageBox.Show("Выберите запись!");
+                return;
+            }
+            NavigationService.Navigate(new OrderEditPage(selected));
+        }
+
+        private void BDelete_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = DGOrders.SelectedItem as Orders;
+            if (selected == null)
+            {
+                MessageBox.Show("Выберите запись!");
+                return;
+            }
+
+            if (MessageBox.Show("Удалить выбранную запись?", "Подтверждение",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             try
             {
-                using (var db = new AutoServiceEntities())
-                {
-                    var q = from o in db.Orders
-                            join ca in db.Cars on o.CarId equals ca.Id
-                            join cl in db.Clients on ca.ClientId equals cl.Id
-                            join s in db.Services on o.ServiceId equals s.Id
-                            join m0 in db.Users on o.MasterId equals m0.Id into mj
-                            from m in mj.DefaultIfEmpty()
-                            select new
-                            {
-                                o.Id,
-                                Client = cl.FullName,
-                                Car = ca.Brand + " " + ca.Model + " (" + ca.PlateNumber + ")",
-                                Service = s.Name,
-                                Master = m.FullName ?? "—",
-                                o.OrderDate,
-                                o.Status,
-                                o.MasterId,
-                                ClientUserId = cl.UserId
-                            };
-                    if (role == Session.Master) q = q.Where(x => x.MasterId == uid);       // мастер – свои заказы
-                    if (role == Session.Client) q = q.Where(x => x.ClientUserId == uid);   // клиент – свои заказы
-                    DataList.ItemsSource = q.OrderBy(x => x.Id).ToList();
-                }
+                App.DB.Orders.Remove(selected);
+                App.DB.SaveChanges();
             }
-            catch (Exception ex) { Helpers.ShowError("Ошибка загрузки данных: " + ex.GetBaseException().Message); }
-        }
-
-        void DataList_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        {
-            if (EditBtn.Visibility == Visibility.Visible && DataList.SelectedItem != null)
-                Edit_Click(sender, e);
-        }
-
-        void Add_Click(object sender, RoutedEventArgs e)
-        {
-            if (OpenForm(null)) LoadData();
-        }
-
-        void Edit_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null) return;
-            if (OpenForm(id.Value)) LoadData();
-        }
-
-        void Delete_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null || !Helpers.ConfirmDelete()) return;
-            try
+            catch (Exception)
             {
-                using (var db = new AutoServiceEntities())
-                {
-                    var o = db.Orders.Find(id.Value);
-                    if (o != null) { db.Orders.Remove(o); db.SaveChanges(); }
-                }
+                App.DB.Entry(selected).Reload();
+                MessageBox.Show("Запись нельзя удалить: она связана с другими данными.");
             }
-            catch (Exception) { Helpers.ShowError("Не удалось удалить заказ."); }
             LoadData();
         }
+    }
+}
 
-        bool OpenForm(int? id)
+
+---------- ФАЙЛ: OrderEditPage.xaml ----------
+
+<Page x:Class="AutoService.OrderEditPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="Заказ">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Width="340" Margin="10" HorizontalAlignment="Center">
+            <TextBlock Text="Заказ" FontSize="20" FontWeight="Bold" Margin="0,0,0,10"/>
+            <TextBlock Text="Автомобиль" Margin="0,8,0,2"/>
+            <ComboBox x:Name="CBCar" SelectedItem="{Binding Cars}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Brand}" Margin="0,0,4,0"/>
+                            <TextBlock Text="{Binding Model}" Margin="0,0,4,0"/>
+                            <TextBlock Text="{Binding PlateNumber}"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="Услуга" Margin="0,8,0,2"/>
+            <ComboBox x:Name="CBService" SelectedItem="{Binding Services}" DisplayMemberPath="Name"/>
+            <TextBlock Text="Мастер" Margin="0,8,0,2"/>
+            <ComboBox x:Name="CBMaster" SelectedItem="{Binding Users}" DisplayMemberPath="FullName"/>
+            <TextBlock Text="Дата заказа" Margin="0,8,0,2"/>
+            <DatePicker x:Name="DPDate" SelectedDate="{Binding OrderDate}"/>
+            <TextBlock Text="Статус" Margin="0,8,0,2"/>
+            <ComboBox x:Name="CBStatus" SelectedValue="{Binding Status}" SelectedValuePath="Content">
+                <ComboBoxItem Content="Новый"/>
+                <ComboBoxItem Content="В работе"/>
+                <ComboBoxItem Content="Готов"/>
+                <ComboBoxItem Content="Выдан"/>
+            </ComboBox>
+            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                <Button x:Name="BSave" Content="Сохранить" Click="BSave_Click" Padding="14,4" Margin="0,0,8,0"/>
+                <Button x:Name="BCancel" Content="Отмена" Click="BCancel_Click" Padding="14,4"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
+
+
+---------- ФАЙЛ: OrderEditPage.xaml.cs ----------
+
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace AutoService
+{
+    public partial class OrderEditPage : Page
+    {
+        Orders contextOrder;
+
+        public OrderEditPage(Orders item)
         {
-            bool onlyStatus = Session.Role == Session.Master;   // мастер меняет только статус
-            using (var db = new AutoServiceEntities())
+            InitializeComponent();
+            contextOrder = item;
+            CBCar.ItemsSource = App.DB.Cars.ToList();
+            CBService.ItemsSource = App.DB.Services.ToList();
+            CBMaster.ItemsSource = App.DB.Users.Where(x => x.Roles.Name == "Мастер").ToList();
+
+            // мастер может менять только статус заказа
+            if (Session.Role == "Мастер")
             {
-                var o = id == null ? new Orders { OrderDate = DateTime.Today, Status = "Новый" } : db.Orders.Find(id.Value);
-
-                var cars = (from ca in db.Cars
-                            join cl in db.Clients on ca.ClientId equals cl.Id
-                            select new { ca.Id, ca.Brand, ca.Model, cl.FullName }).ToList()
-                           .Select(x => new KeyValuePair<int, string>(x.Id, x.Brand + " " + x.Model + " — " + x.FullName));
-                var services = db.Services.ToList().Select(x => new KeyValuePair<int, string>(x.Id, x.Name));
-                var masters = (from u in db.Users
-                               join r in db.Roles on u.RoleId equals r.Id
-                               where r.Name == "Мастер"
-                               select new { u.Id, u.FullName }).ToList()
-                              .Select(x => new KeyValuePair<int, string>(x.Id, x.FullName));
-
-                var fields = new List<FormField> {
-                    new FormField { Key = "CarId", Label = "Автомобиль", Kind = Kind.Lookup,
-                                    Items = Helpers.Pairs(false, cars), Value = id == null ? 0 : o.CarId, Enabled = !onlyStatus },
-                    new FormField { Key = "ServiceId", Label = "Услуга", Kind = Kind.Lookup,
-                                    Items = Helpers.Pairs(false, services), Value = id == null ? 0 : o.ServiceId, Enabled = !onlyStatus },
-                    new FormField { Key = "MasterId", Label = "Мастер", Kind = Kind.Lookup, Nullable = true,
-                                    Items = Helpers.Pairs(true, masters), Value = o.MasterId ?? 0, Enabled = !onlyStatus },
-                    new FormField { Key = "OrderDate", Label = "Дата заказа", Kind = Kind.Date,
-                                    Value = o.OrderDate, Enabled = !onlyStatus },
-                    new FormField { Key = "Status", Label = "Статус", Kind = Kind.Choice,
-                                    Choices = Statuses, Value = o.Status }
-                };
-                var form = new FormWindow(id == null ? "Добавление заказа" : "Редактирование заказа", fields, v =>
-                {
-                    o.Status = (string)v["Status"];
-                    if (!onlyStatus)
-                    {
-                        o.CarId = (int)v["CarId"];
-                        o.ServiceId = (int)v["ServiceId"];
-                        o.MasterId = Helpers.N(v["MasterId"]);
-                        o.OrderDate = (DateTime)v["OrderDate"];
-                    }
-                    if (id == null) db.Orders.Add(o);
-                    db.SaveChanges();
-                    return null;
-                });
-                return form.ShowDialog() == true;
+                CBCar.IsEnabled = CBService.IsEnabled = CBMaster.IsEnabled = DPDate.IsEnabled = false;
             }
+            // привязка свойств объекта к полям формы (Binding)
+            DataContext = contextOrder;
+        }
+
+        private void BSave_Click(object sender, RoutedEventArgs e)
+        {
+            string errorMessage = "";
+            if (contextOrder.Cars == null)
+                errorMessage += "Выберите автомобиль\n";
+            if (contextOrder.Services == null)
+                errorMessage += "Выберите услугу\n";
+            if (string.IsNullOrWhiteSpace(contextOrder.Status))
+                errorMessage += "Выберите статус\n";
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                MessageBox.Show(errorMessage);
+                return;
+            }
+
+            try
+            {
+                if (contextOrder.Id == 0)
+                    App.DB.Orders.Add(contextOrder);
+                App.DB.SaveChanges();
+                // Переход назад после сохранения изменений
+                NavigationService.GoBack();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Не удалось сохранить запись: " + ex.GetBaseException().Message);
+            }
+        }
+
+        private void BCancel_Click(object sender, RoutedEventArgs e)
+        {
+            App.Discard(contextOrder);
+            NavigationService.GoBack();
         }
     }
 }
 
 
 
-ШАГ 12. UsersPage
------------------------------------------------------------------------------------------
+=========================================================================================
+ШАГ 6. Пользователи: UsersPage (список) и UserEditPage (форма)
+=========================================================================================
 
 ---------- ФАЙЛ: UsersPage.xaml ----------
 
@@ -839,22 +884,21 @@ namespace AutoService
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock x:Name="TitleText" Text="Пользователи" FontSize="20" FontWeight="Bold"
+            <TextBlock x:Name="TBTitle" Text="Пользователи" FontSize="20" FontWeight="Bold"
                        VerticalAlignment="Center" Margin="0,0,25,0"/>
-            <Button x:Name="AddBtn" Content="Добавить" Click="Add_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="EditBtn" Content="Редактировать" Click="Edit_Click" Padding="12,4" Margin="0,0,6,0"/>
-            <Button x:Name="DelBtn" Content="Удалить" Click="Delete_Click" Padding="12,4"/>
+            <Button x:Name="BAdd" Content="Добавить" Click="BAdd_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BEdit" Content="Редактировать" Click="BEdit_Click" Padding="12,4" Margin="0,0,6,0"/>
+            <Button x:Name="BDelete" Content="Удалить" Click="BDelete_Click" Padding="12,4"/>
         </StackPanel>
-        <ListView x:Name="DataList" Grid.Row="1" MouseDoubleClick="DataList_DoubleClick">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="ID" Width="50" DisplayMemberBinding="{Binding Id}"/>
-                    <GridViewColumn Header="Логин" Width="150" DisplayMemberBinding="{Binding Login}"/>
-                    <GridViewColumn Header="ФИО" Width="280" DisplayMemberBinding="{Binding FullName}"/>
-                    <GridViewColumn Header="Роль" Width="140" DisplayMemberBinding="{Binding Role}"/>
-                </GridView>
-            </ListView.View>
-        </ListView>
+        <DataGrid x:Name="DGUsers" Grid.Row="1" AutoGenerateColumns="False"
+                  IsReadOnly="True" SelectionMode="Single">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
+                <DataGridTextColumn Header="Логин" Binding="{Binding Login}" Width="150"/>
+                <DataGridTextColumn Header="ФИО" Binding="{Binding FullName}" Width="280"/>
+                <DataGridTextColumn Header="Роль" Binding="{Binding Roles.Name}" Width="140"/>
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </Page>
 
@@ -862,7 +906,6 @@ namespace AutoService
 ---------- ФАЙЛ: UsersPage.xaml.cs ----------
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -874,103 +917,159 @@ namespace AutoService
         public UsersPage()
         {
             InitializeComponent();
+
             LoadData();
+            // при возврате со страницы редактирования список обновляется
+            IsVisibleChanged += (s, e) => { if ((bool)e.NewValue) LoadData(); };
         }
 
+        // Загрузка данных из БД
         void LoadData()
         {
-            try
+            DGUsers.ItemsSource = App.DB.Users.ToList();
+        }
+
+        private void BAdd_Click(object sender, RoutedEventArgs e)
+        {
+            NavigationService.Navigate(new UserEditPage(new Users()));
+        }
+
+        private void BEdit_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = DGUsers.SelectedItem as Users;
+            if (selected == null)
             {
-                using (var db = new AutoServiceEntities())
-                {
-                    DataList.ItemsSource = (from u in db.Users
-                                            join r in db.Roles on u.RoleId equals r.Id
-                                            orderby u.Id
-                                            select new { u.Id, u.Login, u.FullName, Role = r.Name }).ToList();
-                }
-            }
-            catch (Exception ex) { Helpers.ShowError("Ошибка загрузки данных: " + ex.GetBaseException().Message); }
-        }
-
-        void DataList_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        {
-            if (EditBtn.Visibility == Visibility.Visible && DataList.SelectedItem != null)
-                Edit_Click(sender, e);
-        }
-
-        void Add_Click(object sender, RoutedEventArgs e)
-        {
-            if (OpenForm(null)) LoadData();
-        }
-
-        void Edit_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null) return;
-            if (OpenForm(id.Value)) LoadData();
-        }
-
-        void Delete_Click(object sender, RoutedEventArgs e)
-        {
-            int? id = Helpers.SelectedId(DataList);
-            if (id == null) return;
-            if (id.Value == Session.UserId)
-            {
-                MessageBox.Show("Нельзя удалить собственную учётную запись", "Внимание");
+                MessageBox.Show("Выберите запись!");
                 return;
             }
-            if (!Helpers.ConfirmDelete()) return;
-            try
-            {
-                using (var db = new AutoServiceEntities())
-                {
-                    var u = db.Users.Find(id.Value);
-                    if (u != null) { db.Users.Remove(u); db.SaveChanges(); }
-                }
-            }
-            catch (Exception) { Helpers.ShowError("Пользователя нельзя удалить: он связан с другими данными."); }
-            LoadData();
+            NavigationService.Navigate(new UserEditPage(selected));
         }
 
-        bool OpenForm(int? id)
+        private void BDelete_Click(object sender, RoutedEventArgs e)
         {
-            using (var db = new AutoServiceEntities())
+            var selected = DGUsers.SelectedItem as Users;
+            if (selected == null)
             {
-                var u = id == null ? new Users() : db.Users.Find(id.Value);
-                var roles = db.Roles.ToList().Select(x => new KeyValuePair<int, string>(x.Id, x.Name));
-
-                var fields = new List<FormField> {
-                    new FormField { Key = "Login", Label = "Логин", Value = u.Login },
-                    new FormField { Key = "Password", Label = "Пароль", Value = u.Password },
-                    new FormField { Key = "FullName", Label = "ФИО", Value = u.FullName },
-                    new FormField { Key = "RoleId", Label = "Роль", Kind = Kind.Lookup,
-                                    Items = Helpers.Pairs(false, roles), Value = id == null ? 0 : u.RoleId }
-                };
-                var form = new FormWindow(id == null ? "Добавление пользователя" : "Редактирование пользователя", fields, v =>
-                {
-                    string login = (string)v["Login"];
-                    int myId = id ?? 0;
-                    if (db.Users.Any(x => x.Login == login && x.Id != myId))
-                        return "Пользователь с таким логином уже существует";
-                    u.Login = login;
-                    u.Password = (string)v["Password"];
-                    u.FullName = (string)v["FullName"];
-                    u.RoleId = (int)v["RoleId"];
-                    if (id == null) db.Users.Add(u);
-                    db.SaveChanges();
-                    return null;
-                });
-                return form.ShowDialog() == true;
+                MessageBox.Show("Выберите запись!");
+                return;
             }
+            if (selected.Id == Session.UserId)
+            {
+                MessageBox.Show("Нельзя удалить собственную учётную запись");
+                return;
+            }
+            if (MessageBox.Show("Удалить выбранную запись?", "Подтверждение",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            try
+            {
+                App.DB.Users.Remove(selected);
+                App.DB.SaveChanges();
+            }
+            catch (Exception)
+            {
+                App.DB.Entry(selected).Reload();
+                MessageBox.Show("Запись нельзя удалить: она связана с другими данными.");
+            }
+            LoadData();
+        }
+    }
+}
+
+
+---------- ФАЙЛ: UserEditPage.xaml ----------
+
+<Page x:Class="AutoService.UserEditPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="Пользователь">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Width="340" Margin="10" HorizontalAlignment="Center">
+            <TextBlock Text="Пользователь" FontSize="20" FontWeight="Bold" Margin="0,0,0,10"/>
+            <TextBlock Text="Логин" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBLogin" Text="{Binding Login}" Padding="3"/>
+            <TextBlock Text="Пароль" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBPassword" Text="{Binding Password}" Padding="3"/>
+            <TextBlock Text="ФИО" Margin="0,8,0,2"/>
+            <TextBox x:Name="TBFullName" Text="{Binding FullName}" Padding="3"/>
+            <TextBlock Text="Роль" Margin="0,8,0,2"/>
+            <ComboBox x:Name="CBRole" SelectedItem="{Binding Roles}" DisplayMemberPath="Name"/>
+            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                <Button x:Name="BSave" Content="Сохранить" Click="BSave_Click" Padding="14,4" Margin="0,0,8,0"/>
+                <Button x:Name="BCancel" Content="Отмена" Click="BCancel_Click" Padding="14,4"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
+
+
+---------- ФАЙЛ: UserEditPage.xaml.cs ----------
+
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace AutoService
+{
+    public partial class UserEditPage : Page
+    {
+        Users contextUser;
+
+        public UserEditPage(Users item)
+        {
+            InitializeComponent();
+            contextUser = item;
+            CBRole.ItemsSource = App.DB.Roles.ToList();
+            // привязка свойств объекта к полям формы (Binding)
+            DataContext = contextUser;
+        }
+
+        private void BSave_Click(object sender, RoutedEventArgs e)
+        {
+            string errorMessage = "";
+            if (string.IsNullOrWhiteSpace(contextUser.Login))
+                errorMessage += "Заполните логин\n";
+            if (string.IsNullOrWhiteSpace(contextUser.Password))
+                errorMessage += "Заполните пароль\n";
+            if (string.IsNullOrWhiteSpace(contextUser.FullName))
+                errorMessage += "Заполните ФИО\n";
+            if (contextUser.Roles == null)
+                errorMessage += "Выберите роль\n";
+            if (App.DB.Users.Any(x => x.Login == contextUser.Login && x.Id != contextUser.Id))
+                errorMessage += "Такой логин уже существует\n";
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                MessageBox.Show(errorMessage);
+                return;
+            }
+
+            try
+            {
+                if (contextUser.Id == 0)
+                    App.DB.Users.Add(contextUser);
+                App.DB.SaveChanges();
+                // Переход назад после сохранения изменений
+                NavigationService.GoBack();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Не удалось сохранить запись: " + ex.GetBaseException().Message);
+            }
+        }
+
+        private void BCancel_Click(object sender, RoutedEventArgs e)
+        {
+            App.Discard(contextUser);
+            NavigationService.GoBack();
         }
     }
 }
 
 
 
-ШАГ 13. MainPage
------------------------------------------------------------------------------------------
-Кнопки разделов показываются в зависимости от роли.
+=========================================================================================
+ШАГ 7. MainPage (кнопки разделов по ролям)
+=========================================================================================
 
 ---------- ФАЙЛ: MainPage.xaml ----------
 
@@ -1063,31 +1162,26 @@ namespace AutoService
 }
 
 
-ШАГ 14. ЗАПУСК И ПРОВЕРКА
------------------------------------------------------------------------------------------
-Ctrl+Shift+B (сборка), затем F5.
-  Администратор: Клиенты, Автомобили, Услуги, Заказы, Пользователи — полный CRUD.
-  Мастер:        Заказы (только свои; в форме можно изменить только статус) и Услуги
-                 (только просмотр).
-  Клиент:        «Мои автомобили» и «Мои заказы» — только свои данные, без кнопок.
-Удаление всегда спрашивает подтверждение (MessageBox Да/Нет).
+
+=========================================================================================
+ШАГ 8. ЗАПУСК И ПРОВЕРКА
+=========================================================================================
+Ctrl+Shift+B -> F5.
+  Администратор — все 5 разделов, добавить/редактировать/удалить (удаление с вопросом Да/Нет).
+  Мастер — «Заказы» (свои, в форме меняется только статус) и «Услуги» (просмотр).
+  Клиент — «Мои автомобили», «Мои заказы», только просмотр.
 
 КАК ЭТО РАБОТАЕТ (для защиты)
------------------------------------------------------------------------------------------
-  Загрузка:      DataList.ItemsSource = (LINQ-запрос к db.Таблица).ToList();
-  Добавить:      форма FormWindow -> db.Таблица.Add(obj); db.SaveChanges();   (INSERT)
-  Редактировать: obj = db.Таблица.Find(id); меняем поля; db.SaveChanges();    (UPDATE)
-  Удалить:       MessageBox -> db.Таблица.Remove(obj); db.SaveChanges();      (DELETE по Id)
-  После сохранения/удаления вызывается LoadData() — список перезагружается.
-  Права: кнопки скрываются по Session.Role в конструкторе страницы; клиент и мастер
-  видят только свои строки за счёт фильтра в LoadData().
+  Список:      DGClients.ItemsSource = App.DB.Clients.ToList();
+  Добавить:    NavigationService.Navigate(new ClientEditPage(new Clients()));
+               форма: if (Id == 0) App.DB.Clients.Add(obj); App.DB.SaveChanges(); GoBack();
+  Изменить:    SelectedItem as Clients -> та же форма; поля связаны через {Binding},
+               достаточно SaveChanges()
+  Удалить:     MessageBox Да/Нет -> App.DB.Clients.Remove(obj); App.DB.SaveChanges();
+  Права:       кнопки скрываются по Session.Role; клиент/мастер видят только свои строки
+               (LINQ Where в LoadData).
 
 ЕСЛИ НЕ КОМПИЛИРУЕТСЯ
------------------------------------------------------------------------------------------
-* Красным подсвечены Clients/Users/Cars и т.п. или их свойства — в вашей БД другие
-  имена. Посмотрите реальные имена классов и свойств в AutoServiceModel.edmx и замените
-  в *Page.xaml.cs (и в XAML в {Binding ...}, если меняли имена в запросах).
-* Нет Clients.UserId — добавьте столбец в БД и обновите модель (ПКМ по .edmx ->
-  Обновить модель из базы данных).
-* Если класс называется в единственном числе (Client, Car...), вы не сняли галочку
-  при создании модели: пересоздайте модель.
+  * Красные Clients/Cars/Users/... или UserId/MasterId — в вашей БД имена другие: Ctrl+H.
+  * Не найдено AutoServiceEntities — имя вашей модели другое (см. App.xaml.cs).
+  * Ошибка «Session» — в проекте должен быть Session.cs из предыдущих шагов.
